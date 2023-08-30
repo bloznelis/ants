@@ -7,6 +7,13 @@ use rand::Rng;
 
 const TIME_STEP: f32 = 0.1; //secs
 
+const BOX_WIDTH: f32 = 1000.;
+const BOX_HEIGHT: f32 = BOX_WIDTH / 2.;
+
+const ANT_SPEED_MAX: f32 = 200.;
+const ANT_TURN_STR: f32 = PI / 10.;
+const ANT_AMOUNT: usize = 10000;
+
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.25, 0.3, 0.25)))
@@ -30,7 +37,7 @@ impl Ant {
     fn gen(rng: &mut ThreadRng) -> Self {
         Ant {
             direction: rng.gen_range((0.)..(PI * 2.)),
-            speed: rng.gen_range((3.)..(75.)),
+            speed: rng.gen_range((3.)..ANT_SPEED_MAX),
         }
     }
 
@@ -41,10 +48,14 @@ impl Ant {
     }
 }
 
-fn ant_behavior(mut query: Query<&mut Ant>) {
-    for mut ant in &mut query {
+fn ant_behavior(mut query: Query<(&mut Ant, &Transform)>) {
+    for (mut ant, transorm) in &mut query {
         let is_positive: bool = rand::random();
-        let turn_strength = PI / 10.;
+        let turn_strength = if !is_inside_box(transorm.translation.x, transorm.translation.y) {
+            PI
+        } else {
+            ANT_TURN_STR
+        };
 
         if is_positive {
             ant.direction += turn_strength;
@@ -61,7 +72,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(2.)),
         ..default()
     };
-    let ants = Ant::batch_gen(15000, &mut rng);
+    let ants = Ant::batch_gen(ANT_AMOUNT, &mut rng);
     let ant_entities: Vec<(SpriteBundle, Ant)> = ants
         .into_iter()
         .map(|ant| (ant_sprite.clone(), ant))
@@ -80,7 +91,15 @@ fn sprite_movement(time: Res<Time>, mut sprite_position: Query<(&Ant, &mut Trans
         let delta_x = ant.speed * dir.cos() * time.delta_seconds();
         let delta_y = ant.speed * dir.sin() * time.delta_seconds();
 
-        transform.translation.x += delta_x;
-        transform.translation.y += delta_y;
+        transform.translation.x = clamp(-BOX_WIDTH, BOX_WIDTH, transform.translation.x + delta_x);
+        transform.translation.y = clamp(-BOX_HEIGHT, BOX_HEIGHT, transform.translation.y + delta_y);
     }
+}
+
+fn clamp(min: f32, max: f32, value: f32) -> f32 {
+    min.max(value).min(max)
+}
+
+fn is_inside_box(x: f32, y: f32) -> bool {
+    x > -BOX_WIDTH && x < BOX_WIDTH && y > -BOX_HEIGHT && y < BOX_HEIGHT
 }
