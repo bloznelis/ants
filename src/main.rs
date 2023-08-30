@@ -1,4 +1,5 @@
 use std::f32::consts::PI;
+use std::time::Duration;
 
 use bevy::math::*;
 use bevy::prelude::*;
@@ -12,7 +13,7 @@ const BOX_HEIGHT: f32 = BOX_WIDTH / 2.;
 
 const ANT_SPEED_MAX: f32 = 200.;
 const ANT_TURN_STR: f32 = PI / 10.;
-const ANT_AMOUNT: usize = 10000;
+const ANT_AMOUNT: usize = 1000;
 
 fn main() {
     App::new()
@@ -22,8 +23,8 @@ fn main() {
         // .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_systems(Startup, setup)
-        .add_systems(FixedUpdate, ant_behavior)
-        .add_systems(Update, sprite_movement)
+        .add_systems(FixedUpdate, ant_behavior_fixed)
+        .add_systems(Update, (sprite_movement, ant_behavior, pheromone_behavior))
         .run();
 }
 
@@ -31,6 +32,7 @@ fn main() {
 struct Ant {
     direction: f32,
     speed: f32,
+    pheromone_spawn_timer: Timer,
 }
 
 impl Ant {
@@ -38,6 +40,7 @@ impl Ant {
         Ant {
             direction: rng.gen_range((0.)..(PI * 2.)),
             speed: rng.gen_range((3.)..ANT_SPEED_MAX),
+            pheromone_spawn_timer: Timer::new(Duration::from_millis(500), TimerMode::Once),
         }
     }
 
@@ -48,7 +51,51 @@ impl Ant {
     }
 }
 
-fn ant_behavior(mut query: Query<(&mut Ant, &Transform)>) {
+#[derive(Component)]
+struct Pheromone {
+    strength: f32,
+}
+
+fn pheromone_behavior(time: Res<Time>, mut commands: Commands, mut query: Query<(Entity, &mut Sprite, &mut Pheromone)>) {
+    for (entity, mut sprite, mut pheromone) in &mut query {
+        sprite.color.set_a(pheromone.strength);
+        pheromone.strength -= 0.005;
+        if pheromone.strength <= 0. {
+            commands.entity(entity).despawn();
+            sprite.color = Color::rgb(0., 0., 0.);
+        }
+    }
+}
+
+fn ant_behavior(
+    time: Res<Time>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut query: Query<(&mut Ant, &Transform)>,
+) {
+    for (mut ant, transorm) in &mut query {
+        ant.pheromone_spawn_timer.tick(time.delta());
+
+        let mut translation = transorm.translation.clone();
+        translation.z -= 1.;
+        if ant.pheromone_spawn_timer.finished() {
+            //this is very stupid, should load up the sprite only one time
+            let pheromone_sprite = SpriteBundle {
+                texture: asset_server.load("sprites/pheromone-2.png"),
+                transform: transorm
+                    .with_translation(translation)
+                    .clone()
+                    .with_scale(Vec3::splat(1.2)),
+                ..default()
+            };
+
+            commands.spawn((pheromone_sprite, Pheromone { strength: 1. }));
+            ant.pheromone_spawn_timer.reset();
+        }
+    }
+}
+
+fn ant_behavior_fixed(mut query: Query<(&mut Ant, &Transform)>) {
     for (mut ant, transorm) in &mut query {
         let turn_strength = if !is_inside_box(transorm.translation.x, transorm.translation.y) {
             PI
@@ -68,7 +115,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut rng = rand::thread_rng();
     let ant_sprite = SpriteBundle {
         texture: asset_server.load("sprites/ant-3.png"),
-        transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(2.)),
+        transform: Transform::from_xyz(0., 0., 10.).with_scale(Vec3::splat(2.)),
         ..default()
     };
     let ants = Ant::batch_gen(ANT_AMOUNT, &mut rng);
