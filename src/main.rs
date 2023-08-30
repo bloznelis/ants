@@ -50,14 +50,13 @@ impl Ant {
 
 fn ant_behavior(mut query: Query<(&mut Ant, &Transform)>) {
     for (mut ant, transorm) in &mut query {
-        let is_positive: bool = rand::random();
         let turn_strength = if !is_inside_box(transorm.translation.x, transorm.translation.y) {
             PI
         } else {
             ANT_TURN_STR
         };
 
-        if is_positive {
+        if rand::random() {
             ant.direction += turn_strength;
         } else {
             ant.direction -= turn_strength;
