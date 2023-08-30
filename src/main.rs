@@ -7,26 +7,21 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
+        .add_systems(FixedUpdate, ant_behavior)
         .add_systems(Update, sprite_movement)
         .run();
 }
 
 #[derive(Component)]
-enum Direction {
-    Up,
-    Down,
+struct Ant {
+    direction: f32,
+    speed: f32,
 }
 
-#[derive(Component)]
-struct AnalogDirection(f32);
+fn ant_behavior(mut query: Query<&mut Ant>) {
+    let mut ant = query.single_mut();
 
-impl AnalogDirection {
-    fn turn_left(&self) -> AnalogDirection {
-        AnalogDirection(self.0 + PI / 4.)
-    }
-    fn turn_right(&self) -> AnalogDirection {
-        AnalogDirection(self.0 - PI / 4.)
-    }
+    ant.direction += - PI / 1000.;
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -37,7 +32,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3::splat(5.)),
             ..default()
         },
-        AnalogDirection(PI / 2.),
+        Ant{direction: PI / 2., speed: 150.},
     ));
 }
 
@@ -45,20 +40,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 /// the last frame.
 fn sprite_movement(
     time: Res<Time>,
-    mut sprite_position: Query<(&mut AnalogDirection, &mut Transform)>,
+    mut sprite_position: Query<(&Ant, &mut Transform)>,
 ) {
-    for (mut direction, mut transform) in &mut sprite_position {
-        let dir = direction.0;
+    for (ant, mut transform) in &mut sprite_position {
+        let dir = ant.direction;
 
         transform.rotation = Quat::from_rotation_z(dir);
 
-        let speed = 150.;
+        let speed = ant.speed;
         let delta_x = speed * dir.cos() * time.delta_seconds();
         let delta_y = speed * dir.sin() * time.delta_seconds();
 
         transform.translation.x += delta_x;
         transform.translation.y += delta_y;
-
-        *direction = AnalogDirection(dir - PI / 1000.);
     }
 }
