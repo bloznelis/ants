@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use bevy::math::*;
 use bevy::prelude::*;
+use bevy::sprite::collide_aabb::collide;
 use bevy::sprite::Material2d;
 use bevy::sprite::MaterialMesh2dBundle;
-use bevy::sprite::collide_aabb::collide;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
@@ -140,15 +140,12 @@ fn ant_behavior_fixed(
         for &child in children.iter() {
             if let Ok(fov_pos) = fovs.get(child) {
                 // if collide(, a_size, b_pos, b_size)
-
             }
-
-
         }
 
         let turn_str = if !is_inside_box(ant_pos.translation.x, ant_pos.translation.y) {
             PI
-        } else  {
+        } else {
             rng.gen_range(-ANT_TURN_STR..ANT_TURN_STR)
         };
 
@@ -156,15 +153,39 @@ fn ant_behavior_fixed(
     }
 }
 
+#[derive(Component, Clone, Copy)]
+struct Food {}
+
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let mut rng = rand::thread_rng();
+
     commands.spawn(Camera2dBundle::default());
 
-    let mut rng = rand::thread_rng();
+    let foods: Vec<Food> = vec![Food {}; 100];
+    let foods: Vec<(Food, SpriteBundle)> = foods
+        .iter()
+        .map(|food| {
+            (
+                *food,
+                SpriteBundle {
+                    texture: asset_server.load("sprites/food-1.png"),
+                    transform: Transform::from_xyz(
+                        rng.gen_range(-BOX_WIDTH..BOX_WIDTH),
+                        rng.gen_range(-BOX_HEIGHT..BOX_HEIGHT),
+                        1.,
+                    ),
+                    ..default()
+                },
+            )
+        })
+        .collect();
+    commands.spawn_batch(foods);
+
     let ant_sprite = SpriteBundle {
         texture: asset_server.load("sprites/ant-3.png"),
         transform: Transform::from_xyz(0., 0., 10.).with_scale(Vec3::splat(2.)),
@@ -180,11 +201,11 @@ fn setup(
     //
 
     let detection_mesh = MaterialMesh2dBundle {
-                    mesh: meshes.add(shape::Box::new(60., 70., 0.).into()).into(),
-                    material: materials.add(ColorMaterial::from(Color::rgba(0., 0., 0., 0.3))),
-                    transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
-                    ..default()
-                };
+        mesh: meshes.add(shape::Box::new(60., 70., 0.).into()).into(),
+        material: materials.add(ColorMaterial::from(Color::rgba(0., 0., 0., 0.3))),
+        transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
+        ..default()
+    };
     let fov = AntFov {};
 
     let ant = Ant::gen(&mut rng);
