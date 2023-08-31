@@ -6,6 +6,8 @@ use bevy::prelude::*;
 use bevy::sprite::collide_aabb::collide;
 use bevy::sprite::Material2d;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::sprite::Mesh2dHandle;
+use bevy_xpbd_2d::prelude::*;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
@@ -35,14 +37,31 @@ const PHEROMONE_FADE_STR: f32 = 0.001;
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.25, 0.3, 0.25)))
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, PhysicsPlugins::default()))
         // .add_plugins(bevy::diagnostic::LogDiagnosticsPlugin::default())
         // .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, ant_behavior_fixed)
-        .add_systems(Update, (sprite_movement, ant_behavior, pheromone_behavior))
+        .add_systems(
+            Update,
+            (
+                sprite_movement,
+                ant_behavior,
+                pheromone_behavior,
+                collision_detector,
+            ),
+        )
         .run();
+}
+
+fn collision_detector(mut collision_event_reader: EventReader<CollisionStarted>) {
+    for CollisionStarted(a, b) in collision_event_reader.iter() {
+        println!(
+            "{:?} and {:?} are colliding",
+            a, b
+        );
+    }
 }
 
 #[derive(Component)]
@@ -132,17 +151,13 @@ fn ant_behavior(
 
 fn ant_behavior_fixed(
     mut query: Query<(&mut Ant, &Transform, &Children)>,
-    fovs: Query<&Transform>,
+    fovs: Query<&GlobalTransform, With<AntFov>>,
+    food: Query<(Entity, &Food, &Transform)>,
     pheromones: Query<(&Pheromone, &Transform)>,
+    mut commands: Commands,
 ) {
     let mut rng = rand::thread_rng();
     for (mut ant, ant_pos, children) in &mut query {
-        for &child in children.iter() {
-            if let Ok(fov_pos) = fovs.get(child) {
-                // if collide(, a_size, b_pos, b_size)
-            }
-        }
-
         let turn_str = if !is_inside_box(ant_pos.translation.x, ant_pos.translation.y) {
             PI
         } else {
@@ -150,6 +165,44 @@ fn ant_behavior_fixed(
         };
 
         ant.direction += turn_str;
+
+        for &child in children.iter() {
+            if let Ok(fov_pos) = fovs.get(child) {
+                let mut closest_food_pos: Option<Vec3> = None;
+                let mut closest_distance = 1000000.0; //inf
+
+                // for (food_entity, food, food_transform) in food.iter() {
+                //     let food_pos = food_transform.translation;
+                //     if let Some(_) = collide(
+                //         fov_pos.translation(),
+                //         Vec2::new(70., 60.),
+                //         food_pos,
+                //         Vec2::new(10., 10.),
+                //     ) {
+                //         let dist = ((food_pos.x - ant_pos.translation.x).powi(2)
+                //             + (food_pos.y - ant_pos.translation.y).powi(2))
+                //         .sqrt();
+                //         if closest_distance > dist {
+                //             closest_distance = dist;
+                //             closest_food_pos = Some(food_pos);
+                //         }
+                //
+                //         commands.entity(food_entity).despawn();
+                //     } else {
+                //         // println!("no collision")
+                //     }
+                // }
+
+                if let Some(food_pos) = closest_food_pos {
+                    println!("helo");
+                    let dx = food_pos.x - ant_pos.translation.x;
+                    let dy = food_pos.y - ant_pos.translation.y;
+                    let target_angle = dy.atan2(dx);
+
+                    ant.direction += target_angle;
+                }
+            }
+        }
     }
 }
 
@@ -166,8 +219,9 @@ fn setup(
 
     commands.spawn(Camera2dBundle::default());
 
-    let foods: Vec<Food> = vec![Food {}; 100];
-    let foods: Vec<(Food, SpriteBundle)> = foods
+    let foods: Vec<Food> = vec![Food {}; 1000];
+
+    let foods: Vec<(Food, SpriteBundle, Collider)> = foods
         .iter()
         .map(|food| {
             (
@@ -177,13 +231,15 @@ fn setup(
                     transform: Transform::from_xyz(
                         rng.gen_range(-BOX_WIDTH..BOX_WIDTH),
                         rng.gen_range(-BOX_HEIGHT..BOX_HEIGHT),
-                        1.,
+                        10.,
                     ),
                     ..default()
                 },
+                Collider::ball(10.),
             )
         })
         .collect();
+
     commands.spawn_batch(foods);
 
     let ant_sprite = SpriteBundle {
@@ -203,13 +259,13 @@ fn setup(
     let detection_mesh = MaterialMesh2dBundle {
         mesh: meshes.add(shape::Box::new(60., 70., 0.).into()).into(),
         material: materials.add(ColorMaterial::from(Color::rgba(0., 0., 0., 0.3))),
-        transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
+        transform: Transform::from_translation(Vec3::new(30., 0., 10.)),
         ..default()
     };
     let fov = AntFov {};
 
     let ant = Ant::gen(&mut rng);
-    let parent = commands.spawn((ant_sprite, ant)).id();
+    let parent = commands.spawn((ant_sprite, ant, RigidBody::Static, Collider::ball(10.), Sensor)).id();
 
     let child = commands.spawn((detection_mesh, fov)).id();
 
@@ -249,4 +305,9 @@ fn clamp(min: f32, max: f32, value: f32) -> f32 {
 
 fn is_inside_box(x: f32, y: f32) -> bool {
     x > -BOX_WIDTH && x < BOX_WIDTH && y > -BOX_HEIGHT && y < BOX_HEIGHT
+}
+
+/// Returns true if x;y point is inside a box
+fn is_inside(x: f32, y: f32, bx1: f32, by1: f32, bx2: f32, by2: f32) -> bool {
+    bx1 < x && x < bx2 && by1 < y && y < by2
 }
