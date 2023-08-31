@@ -3,6 +3,9 @@ use std::time::Duration;
 
 use bevy::math::*;
 use bevy::prelude::*;
+use bevy::sprite::Material2d;
+use bevy::sprite::MaterialMesh2dBundle;
+use bevy::sprite::collide_aabb::collide;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
@@ -18,7 +21,7 @@ const ANT_TURN_STR: f32 = PI / 10.;
 
 const PHEROMONE_SPAWN_RATE_MS: u64 = 100;
 const PHEROMONE_STR: f32 = 1.;
-const PHEROMONE_FADE_STR: f32 = 0.005;
+const PHEROMONE_FADE_STR: f32 = 0.001;
 
 // todo:
 // * Add food support
@@ -27,6 +30,7 @@ const PHEROMONE_FADE_STR: f32 = 0.005;
 // * Add nest
 // * Several ant states
 // * Add mouse support for interactivity (like adding food) -> https://github.com/bevyengine/bevy/blob/main/examples/ui/relative_cursor_position.rs
+// * Load pheromone sprite only once -> https://bevyengine.org/learn/book/getting-started/resources/
 
 fn main() {
     App::new()
@@ -47,6 +51,9 @@ struct Ant {
     speed: f32,
     pheromone_spawn_timer: Timer,
 }
+
+#[derive(Component, Clone, Copy)]
+struct AntFov {}
 
 impl Ant {
     fn gen(rng: &mut ThreadRng) -> Self {
@@ -73,7 +80,6 @@ impl Ant {
 
 #[derive(Component)]
 struct Pheromone {
-    owner: Entity,
     strength: f32,
 }
 
@@ -116,7 +122,6 @@ fn ant_behavior(
             commands.spawn((
                 pheromone_sprite,
                 Pheromone {
-                    owner: entity,
                     strength: PHEROMONE_STR,
                 },
             ));
@@ -126,43 +131,24 @@ fn ant_behavior(
 }
 
 fn ant_behavior_fixed(
-    mut query: Query<(Entity, &mut Ant, &Transform)>,
+    mut query: Query<(&mut Ant, &Transform, &Children)>,
+    fovs: Query<&Transform>,
     pheromones: Query<(&Pheromone, &Transform)>,
 ) {
     let mut rng = rand::thread_rng();
-    for (entity, mut ant, ant_pos) in &mut query {
-        // let follow_pheromone: bool = rand::random();
-        let follow_pheromone: bool = false;
+    for (mut ant, ant_pos, children) in &mut query {
+        for &child in children.iter() {
+            if let Ok(fov_pos) = fovs.get(child) {
+                // if collide(, a_size, b_pos, b_size)
+
+            }
+
+
+        }
+
         let turn_str = if !is_inside_box(ant_pos.translation.x, ant_pos.translation.y) {
             PI
-        } else if follow_pheromone {
-            let max_pheromone_dist = 50.;
-            let mut closest_pheromone_pos: Option<&Transform> = None;
-            let mut closest_distance = 1000000.0; //inf
-
-            for (pheromone, pos) in pheromones.iter() {
-                let dist = ((pos.translation.x - ant_pos.translation.x).powi(2)
-                    + (pos.translation.y - ant_pos.translation.y).powi(2))
-                .sqrt();
-                if closest_distance > dist
-                    && max_pheromone_dist > dist
-                    && entity.index() != pheromone.owner.index()
-                {
-                    closest_distance = dist;
-                    closest_pheromone_pos = Some(pos);
-                }
-            }
-            match closest_pheromone_pos {
-                Some(pheromone_pos) => {
-                    let dx = pheromone_pos.translation.x - ant_pos.translation.x;
-                    let dy = pheromone_pos.translation.y - ant_pos.translation.y;
-                    let target_angle = dy.atan2(dx);
-
-                    target_angle / 2.
-                }
-                None => rng.gen_range(-ANT_TURN_STR..ANT_TURN_STR),
-            }
-        } else {
+        } else  {
             rng.gen_range(-ANT_TURN_STR..ANT_TURN_STR)
         };
 
@@ -170,21 +156,56 @@ fn ant_behavior_fixed(
     }
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    commands.spawn(Camera2dBundle::default());
+
     let mut rng = rand::thread_rng();
     let ant_sprite = SpriteBundle {
         texture: asset_server.load("sprites/ant-3.png"),
         transform: Transform::from_xyz(0., 0., 10.).with_scale(Vec3::splat(2.)),
         ..default()
     };
-    let ants = Ant::batch_gen(ANT_AMOUNT, &mut rng);
-    let ant_entities: Vec<(SpriteBundle, Ant)> = ants
-        .into_iter()
-        .map(|ant| (ant_sprite.clone(), ant))
-        .collect();
 
-    commands.spawn(Camera2dBundle::default());
-    commands.spawn_batch(ant_entities);
+    // let triangle_mesh = MaterialMesh2dBundle {
+    //                 mesh: meshes.add(shape::RegularPolygon::new(30., 3).into()).into(),
+    //                 material: materials.add(ColorMaterial::from(Color::rgba(0., 0., 0., 0.3))),
+    //                 transform: Transform::from_translation(Vec3::new(25., 0., 0.)).with_rotation(Quat::from_rotation_z(PI / 6. + PI)),
+    //                 ..default()
+    //             };
+    //
+
+    let detection_mesh = MaterialMesh2dBundle {
+                    mesh: meshes.add(shape::Box::new(60., 70., 0.).into()).into(),
+                    material: materials.add(ColorMaterial::from(Color::rgba(0., 0., 0., 0.3))),
+                    transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
+                    ..default()
+                };
+    let fov = AntFov {};
+
+    let ant = Ant::gen(&mut rng);
+    let parent = commands.spawn((ant_sprite, ant)).id();
+
+    let child = commands.spawn((detection_mesh, fov)).id();
+
+    commands.entity(parent).push_children(&[child]);
+
+    // let ants = Ant::batch_gen(ANT_AMOUNT, &mut rng);
+    // let ant_entities: Vec<(SpriteBundle, Ant)> = ants
+    //     .into_iter()
+    //     .map(|ant| {
+    //         (
+    //             ant_sprite.clone(),
+    //             ant,
+    //         )
+    //     })
+    //     .collect();
+    //
+    // commands.spawn_batch(ant_entities);
 }
 
 fn sprite_movement(time: Res<Time>, mut sprite_position: Query<(&Ant, &mut Transform)>) {
